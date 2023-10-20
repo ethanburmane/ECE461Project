@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NetScore = exports.ResponsiveMaintainer = exports.RampUp = exports.License = exports.BusFactor = exports.Correctness = void 0;
 const child_process_1 = require("child_process");
 const logger_1 = require("./logging/logger");
+const axios_1 = require("axios");
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 // This class contains the correctness metric. The correctness metric is calculated by ...
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -31,16 +32,15 @@ class BusFactor {
         return this.name;
     }
     score(pkg) {
-        const temp_dir = "";
         // setting the constants for the bus factor score
         const func_steepness = 0.1;
         const top_commiter_weight = 0.3;
         const top_x_commiter_weight = 0.3;
         const number_committers_weight = 0.4;
         // retreiving the fields needed to calculate the bus factor score
-        const top_commiter_perc = this.get_top_committer_perc(temp_dir);
-        const top_x_commiter_perc = this.get_top_x_committer_perc(temp_dir);
-        const number_committers = this.get_number_committers(temp_dir);
+        const top_commiter_perc = this.get_top_committer_perc(pkg.temp_dir);
+        const top_x_commiter_perc = this.get_top_x_committer_perc(pkg.temp_dir);
+        const number_committers = this.get_number_committers(pkg.temp_dir);
         // calculating the bus factor score
         const top_commiter_perc_func = 1 / (1 + Math.exp(-func_steepness * (top_commiter_perc - 0.5)));
         const top_x_commiter_perc_func = 1 / (1 + Math.exp(-func_steepness * (top_x_commiter_perc - 0.5)));
@@ -232,13 +232,172 @@ class License {
     get_name() {
         return this.name;
     }
-    score(pkg) {
-        return 0;
+    async score(pkg) {
+        const Lscore = await this.License(pkg);
+        return (Lscore);
+    }
+    FindMatch(fileContents) {
+        const licensePatterns = [
+            'LGPLv2[. ]1',
+            'GPLv2',
+            'GPLv3',
+            'MIT',
+            'BSD',
+            'Apache',
+            'Expat',
+            'zlib',
+            'ISC',
+        ];
+        // Create a set to store found licenses
+        const foundLicenses = new Set();
+        // Generate regex patterns for each license
+        const regexPatterns = licensePatterns.map((pattern) => {
+            // Escape any special characters in the pattern
+            const escapedPattern = pattern.replace(/[.*+?^${}()-|[\]\\]/g, '\\$&');
+            return new RegExp(`[^\\w\\d]${escapedPattern}[^\\w\\d]`, 'i');
+        });
+        // Find matches using the generated regex patterns
+        for (const regex of regexPatterns) {
+            const matches = fileContents.match(regex);
+            if (matches) {
+                for (const match of matches) {
+                    // Clean up the match by removing surrounding non-alphanumeric characters
+                    const cleanedMatch = match.replace(/[^a-zA-Z0-9]+/g, '');
+                    //console.log('Pattern Matched:', match);
+                    foundLicenses.add(cleanedMatch);
+                }
+            }
+        }
+        // Convert the set to an array and return it
+        return Array.from(foundLicenses);
+    }
+    async CloneReadme(url, GIT_TOKEN) {
+        try {
+            // Get the README file content from the GitHub API.
+            logger_1.logger.info("Requesting readme from github", { timestamp: new Date(), url: url });
+            const response = await axios_1.default.get(url, {
+                headers: {
+                    Authorization: `token ${GIT_TOKEN}`,
+                    Accept: 'application/vnd.github.VERSION.raw', // Use the raw content type
+                },
+            });
+            // Return the README file content as a string.
+            return response.data;
+        }
+        catch (error) {
+            if (error.response) {
+                logger_1.logger.error("Error encountered when requesting readme", { timestamp: new Date(), url: url, message: error.message, response: error.response.data });
+                throw new Error(error.response.data);
+            }
+            else {
+                logger_1.logger.error("Error encountered when requesting readme", { timestamp: new Date(), url: url, message: error.message });
+                throw new Error(error.message);
+            }
+        }
+    }
+    async fetchNpmPackageReadme(packageName) {
+        try {
+            // Get the package  content
+            logger_1.logger.info("Getting readme from npm", { timestamp: new Date(), package: packageName });
+            const response = await axios_1.default.get(`https://registry.npmjs.org/${packageName}`);
+            const packageData = response.data;
+            // Check if the package data contains a README field.
+            if (packageData.readme) {
+                logger_1.logger.info("Found readme from npm", { timestampe: new Date(), package: packageName });
+                //console.log(packageData.readme);
+                return packageData.readme;
+            }
+            else {
+                logger_1.logger.error("Readme not found on npm", { timestamp: new Date(), package: packageName, response,
+                    throw: new Error(`README not found for package: ${packageName}`)
+                });
+            }
+            try { }
+            catch (error) {
+                if (error.response) {
+                    logger_1.logger.error("Error encountered when requesting readme", { timestamp: new Date(), package: packageName, message: error.message, response: error.response.data });
+                }
+                else {
+                    logger_1.logger.error("Error encountered when requesting readme", { timestamp: new Date(), package: packageName, message: error.message });
+                }
+                throw new Error(error.response ? error.response.data : error.message);
+            }
+        }
+        finally {
+        }
+    }
+    async fetchNpmLicense(packageName) {
+        try {
+            // Get the package content
+            const response = await axios_1.default.get(`https://registry.npmjs.org/${packageName}`);
+            const packageData = response.data;
+            // Check if the package data contains a license field.
+            if (packageData.license) {
+                console.log('license file found for package:', packageName);
+                //console.log(packageData.readme);
+                return packageData.license;
+            }
+            else {
+                throw new Error(`License file not found for package: ${packageName}`);
+            }
+        }
+        catch (error) {
+            throw new Error(error.response ? error.response.data : error.message);
+        }
+    }
+    async License(pkg) {
+        //loading package information
+        let type = pkg.type;
+        let owner = pkg.owner;
+        let repo = pkg.repo;
+        let GIT_TOKEN = pkg.githubToken;
+        //defiing variables
+        let UrlRepo = '';
+        let readmeContent = '';
+        let LContent = '';
+        //checking if the type is github or npm and calling the appropriate function
+        if (type == "github.com") {
+            //formating the url for the github api
+            UrlRepo = `https://github.com/${owner}/${repo}`;
+            readmeContent = await this.CloneReadme(UrlRepo, GIT_TOKEN);
+            console.log(UrlRepo);
+        }
+        else if (type == "npmjs.com") {
+            console.log("NPM called");
+            //npm version is called with repo name, url is made in function
+            readmeContent = await this.fetchNpmPackageReadme(repo);
+            //many npm repos dont put the license in the readme but in a seperate file
+            LContent = await this.fetchNpmLicense(repo);
+            console.log(UrlRepo);
+        }
+        else {
+            console.log("Invalid URL");
+            pkg.LicenseName = "Invalid URL";
+            pkg.LicenseScore = 0;
+        }
+        //call the find match function to find the license match
+        const RD_Match = this.FindMatch(readmeContent);
+        //check if the license was found in the readme
+        if (RD_Match && RD_Match.length > 0) {
+            pkg.LicenseName = RD_Match[0];
+            pkg.LicenseScore = 1;
+        }
+        else {
+            //if the license was not found in the readme check if it was found in the license file
+            const L_Match = this.FindMatch(LContent);
+            if (L_Match && L_Match.length > 0) {
+                console.log('License found: ' + L_Match[0]);
+                pkg.LicenseName = L_Match[0];
+                pkg.LicenseScore = 1;
+            }
+        }
+        return pkg.LicenseScore;
     }
 }
 exports.License = License;
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-// This class contains the ramp up metric. The ramp up metric is calculated by ...
+// This class contains the ramp up metric. The ramp up metric is calculated by accesing the length 
+// of the readme and the number of files in the repository. 
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 class RampUp {
     constructor() {
@@ -248,7 +407,32 @@ class RampUp {
         return this.name;
     }
     score(pkg) {
-        return 0;
+        // setting the constants for the ramp up score
+        const function_steepness = 0.1;
+        const readme_length_weight = 0.5;
+        const num_files_weight = 0.5;
+        // retrieving the fields needed to calculate the ramp up score
+        const readme_length = this.get_readme_length(pkg);
+        const num_files = this.get_num_files(pkg);
+        // calculating the ramp up score
+        const readme_length_func = 1 / (1 + Math.exp(-function_steepness * readme_length));
+        const num_files_func = 1 / (1 + Math.exp(-function_steepness * num_files));
+        const ramp_up_score = (readme_length_weight * readme_length_func)
+            + (num_files_weight * num_files_func);
+        logger_1.logger.info("ramp up score calculated", {
+            msg: "ramp up score calculated",
+            module: "RampUp.prototype.score",
+            timestamp: new Date()
+        });
+        return ramp_up_score;
+    }
+    get_readme_length(pkg) {
+        // place api calls here
+        return readme_length;
+    }
+    get_num_files(pkg) {
+        // place api calls here
+        return num_files;
     }
 }
 exports.RampUp = RampUp;
@@ -265,7 +449,6 @@ class ResponsiveMaintainer {
         return this.name;
     }
     score(pkg) {
-        const temp_dir = "";
         // setting the constants for the responsive maintainer score
         const function_steepness = 0.1;
         const sigmoid_midpoint = 30;
@@ -273,8 +456,8 @@ class ResponsiveMaintainer {
         const last_commit_weigth = 0.5;
         const commit_frequency_weight = 0.5;
         // retrieving the fields needed to calculate the responsive maintainer score
-        const last_commit = this.get_last_commit(temp_dir);
-        const commit_frequency = this.get_commit_frequency(temp_dir);
+        const last_commit = this.get_last_commit(pkg.temp_dir);
+        const commit_frequency = this.get_commit_frequency(pkg.temp_dir);
         // calculating the responsive maintainer score
         const last_commit_func = 1 / (1 + Math.exp(-function_steepness * (last_commit - sigmoid_midpoint)));
         const commit_frequency_func = 1 / (1 + Math.exp(-function_steepness * commit_frequency));
@@ -389,8 +572,6 @@ class NetScore {
         return this.name;
     }
     score(pkg) {
-        const temp_dir = "";
-        const url = "";
         // retrieving the scores for each metric
         const bus_factor_score = Math.floor(BusFactor.prototype.score(pkg));
         const responsive_maintainer_score = Math.floor(ResponsiveMaintainer.prototype.score(pkg));
@@ -411,7 +592,7 @@ class NetScore {
             + (license_weight * license_score));
         // formatting the net score as ndjson and printing it to stdout
         const score_json = [{
-                "URL": url,
+                "URL": pkg.url,
                 "NET_SCORE": net_score,
                 "RAMP_UP_SCORE": ramp_up_score,
                 "CORRECTNESS_SCORE": correctness_score,

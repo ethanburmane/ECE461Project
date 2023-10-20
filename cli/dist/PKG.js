@@ -12,6 +12,7 @@ class Package {
     //calls handler
     constructor(InputUrl, gitToken) {
         //metrics
+        this.temp_dir = '';
         //license
         this.LicenseScore = 0;
         this.LicenseName = '';
@@ -26,6 +27,8 @@ class Package {
         //Pulled Data
         this.RepositoryData = null;
         this.githubRepositoryLicense = null;
+        //Log here for package creation
+        logger.info(`Creating package from url: ${InputUrl}`, { timestamp: new Date() });
         this.githubToken = gitToken;
         this.url = InputUrl;
         //parsing to get type, owner, repo
@@ -47,7 +50,7 @@ class Package {
             this.repo = "unknown";
         }
         if (this.type == "github") {
-            this.Clone_Repo(this.owner, this.repo);
+            const temp_dir = this.Clone_Repo(this.owner, this.repo);
         }
         else if (this.type == "npm") {
             this.Npm_Handler(this.repo);
@@ -60,6 +63,8 @@ class Package {
         //potentially put in constructor
         // put cloning here
         const temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-temp-dir'));
+        //Log cloning directory
+        logger.info("Cloning repository", { repository: repo, timestamp: new Date() });
         (0, child_process_1.execSync)(`git clone https://github.com/${owner}/${repo}.git`, {
             cwd: temp_dir,
             stdio: 'inherit', // Redirect child process' stdio to the parent
@@ -70,6 +75,8 @@ class Package {
         return temp_dir;
     }
     Delete_Repo(temp_dir) {
+        //Log deleting repository
+        logger.info("Deleting local repository", { timestamp: new Date() });
         fs.rmdirSync(temp_dir, { recursive: true });
     }
     Npm_Handler(packageName) {
@@ -79,6 +86,7 @@ class Package {
     }
     //modify as needed for each metric
     Score() {
+        logger.debug(`Scoring package ${this.repo}`, { repository: this.repo, timestamp: new Date() });
         this.License(this.owner, this.repo);
         this.BusFactorScore = this.Bus_Factor();
         //this.CorrectnessScore = this.Correctness(); 
@@ -91,12 +99,14 @@ class Package {
         this.LicenseScore = 0;
         const apiUrl = `https://api.github.com/repos/${owner}/${repo}/license`;
         try {
+            //Log making get request
             const response = await axios_1.default.get(apiUrl, {
                 headers: {
                     Authorization: `Bearer ${this.githubToken}`,
                 },
             });
             if (response.status === 200) {
+                //Log successful response
                 //log(response.data);
                 //console.log(response.data);
                 this.data = response.data;
@@ -105,14 +115,17 @@ class Package {
                     this.LicenseScore = 1;
                 }
                 else {
+                    //Log no license found
                     this.LicenseName = 'License information not found';
                 }
             }
             else {
+                //Log unsuccessful response
                 this.LicenseName = 'GitHub API request failed with status: ' + response.status;
             }
         }
         catch (error) {
+            //Log error when making request
             this.LicenseName = 'Error while making the GitHub API request: ' + error.message;
         }
         //implement npm version
