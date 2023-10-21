@@ -1,0 +1,39 @@
+{
+  "devDependencies": {
+    "@types/node": "^20.6.3",
+    "@types/progress": "^2.0.5",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "@types/commander": "^2.12.2",
+    "axios": "^1.5.0",
+    "chalk": "^5.3.0",
+    "commander": "^11.0.0",
+    "dotenv": "^16.3.1",
+    "figlet": "^1.6.0",
+    "isomorphic-git": "^1.24.5",
+    "jest": "^29.7.0",
+    "pino": "^8.16.0",
+    "progress": "^2.0.3"
+  },
+  "name": "clonedece461project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/run.js",
+    "dev": "ts-node src/run.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethanburmane/ECE461Project.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ethanburmane/ECE461Project/issues"
+  },
+  "homepage": "https://github.com/ethanburmane/ECE461Project#readme"
+}
